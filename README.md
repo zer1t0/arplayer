@@ -1,8 +1,19 @@
 # ARPlayer
 
+[![Crates.io](https://img.shields.io/crates/v/arplayer)](https://crates.io/crates/arplayer)
+[![Language Rust](https://img.shields.io/badge/Language-Rust-blue)](https://www.rust-lang.org/)
+
+
 You can use ARPlayer to perform several attacks/techniques that involve ARP.
 
 For using ARPlayer you will need `root` privileges, since it is necessary to create raw sockets.
+
+## Installation
+
+To install:
+```
+$ cargo install arplayer
+```
 
 ## Scan
 
@@ -73,3 +84,6 @@ $ sudo arplayer forward
 1
 ```
 
+# Disclaimer
+
+Please, don't use this tool for bad things. I won't assume any responsibility for your actions with this tool.
