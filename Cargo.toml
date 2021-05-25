@@ -1,0 +1,21 @@
+[package]
+name = "arplayer"
+version = "0.1.0"
+authors = ["Eloy Pérez <zer1t0ps@protonmail.com>"]
+description = "A tool to play and attack ARP"
+edition = "2018"
+license = "GPL-3.0"
+repository = "https://github.com/Zer1t0/arplayer"
+readme = "README.md"
+
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+clap = "2.33"
+pnet = "0.28"
+threadpool = "1.8"
+log = "0.4"
+stderrlog = "0.4"
+ctrlc = { version = "3.1", features = ["termination"] }
+sysctl = "0.4"
