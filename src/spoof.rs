@@ -47,6 +47,8 @@ pub fn main_spoof(args: args::spoof::Arguments) -> Result<(), String> {
         timeout,
     )?;
 
+
+
     let delay = args.delay;
 
     let running = Arc::new(AtomicBool::new(true));
@@ -158,6 +160,10 @@ fn get_victims_addrs(
                 info!("Unable to get MAC of victim {}: {}", victim_ip, e)
             }
         }
+    }
+
+    if victims_addrs.len() == 0 {
+        return Err(format!("Unable to get any MAC of victims"));
     }
 
     return Ok(victims_addrs);
