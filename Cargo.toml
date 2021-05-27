@@ -1,6 +1,6 @@
 [package]
 name = "arplayer"
-version = "0.1.1"
+version = "0.1.2"
 authors = ["Eloy Pérez <zer1t0ps@protonmail.com>"]
 description = "A tool to play and attack ARP"
 edition = "2018"
