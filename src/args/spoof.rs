@@ -1,3 +1,4 @@
+use pnet::util::MacAddr;
 use std::{collections::HashSet, net::Ipv4Addr, time::Duration};
 
 use clap::{App, Arg, ArgMatches, SubCommand, Values};
@@ -35,13 +36,23 @@ pub fn command() -> App<'static, 'static> {
                 .help("IP to impersonate"),
         )
         .arg(
+            Arg::with_name("fake-mac")
+                .long("fake-mac")
+                .short("m")
+                .takes_value(true)
+                .value_name("mac")
+                .validator(helpers::is_mac)
+                .help("MAC to poison the ARP tables. If none, the MAC of the selected interface will be used")
+                .conflicts_with("fake-ip")
+        )
+        .arg(
             Arg::with_name("fake-ip")
                 .long("fake-ip")
-                .short("f")
+                .short("i")
                 .takes_value(true)
                 .value_name("ip")
                 .validator(helpers::is_ip)
-                .help("IP to poison the ARP tables. If none, the IP of this machine will be used")
+                .help("IP to get the MAC to poison the ARP tables. If none, the MAC of the selected interface will be used")
         )
         .arg(
             Arg::with_name("timeout")
@@ -103,6 +114,7 @@ pub struct Arguments {
     pub victim_ips: HashSet<Ipv4Addr>,
     pub gw_ip: Ipv4Addr,
     pub fake_ip: Option<Ipv4Addr>,
+    pub fake_mac: Option<MacAddr>,
     pub delay: Duration,
     pub timeout: Duration,
     pub verbosity: usize,
@@ -128,6 +140,7 @@ impl<'a> Arguments {
                 .map(|ip| ip.parse().unwrap())
                 .unwrap(),
             fake_ip: matches.value_of("fake-ip").map(|ip| ip.parse().unwrap()),
+            fake_mac: matches.value_of("fake-mac").map(|mac| mac.parse().unwrap()),
             verbosity: matches.occurrences_of("verbosity") as usize,
             timeout: Duration::from_millis(
                 matches.value_of("timeout").unwrap().parse().unwrap(),
